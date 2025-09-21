@@ -123,7 +123,7 @@ func (conn *udpConn) ReceiveTo(data []byte, addr *net.UDPAddr) error {
 	}
 	err := conn.handler.ReceiveTo(conn, data, addr)
 	if err != nil {
-		return errors.New(fmt.Sprintf("write proxy failed: %v", err))
+		return fmt.Errorf("write proxy failed: %v", err)
 	}
 	return nil
 }

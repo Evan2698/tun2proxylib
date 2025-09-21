@@ -24,8 +24,18 @@ type udpHandler struct {
 	dnsCache *cache.DNSCache
 }
 
+const timeoutSecond = 30 * 60 // 30 minutes
+
+var (
+	connectionTimeMap = make(map[net.Conn]int32)
+	once              sync.Once
+	lock              sync.Mutex
+)
+
 // NewUDPHandler ...
 func NewUDPHandler(proxyHost string, proxyPort uint16, timeout time.Duration, dnsCache *cache.DNSCache) core.UDPConnHandler {
+
+	once.Do(initTimer)
 	return &udpHandler{
 		proxyHost: proxyHost,
 		proxyPort: proxyPort,
@@ -33,6 +43,25 @@ func NewUDPHandler(proxyHost string, proxyPort uint16, timeout time.Duration, dn
 		timeout:   timeout,
 		udpSocks:  make(map[core.UDPConn]net.Conn, 8),
 	}
+}
+
+func initTimer() {
+
+	go func() {
+		ticker := time.NewTicker(60 * time.Second)
+		for {
+			<-ticker.C
+			lock.Lock()
+			for con, t := range connectionTimeMap {
+				t--
+				if t == 0 {
+					delete(connectionTimeMap, con)
+					con.Close()
+				}
+			}
+			lock.Unlock()
+		}
+	}()
 }
 
 func settimeout(con net.Conn, second time.Duration) {
@@ -48,16 +77,19 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) error {
 	dest := net.JoinHostPort(h.proxyHost, strconv.Itoa(int(h.proxyPort)))
 	remoteCon, err := net.Dial("udp", dest)
 	if err != nil || target == nil {
-		h.Close(conn)
 		log.Println("socks connect failed:", err, dest)
 		return err
 	}
 
+	lock.Lock()
+	connectionTimeMap[remoteCon] = timeoutSecond
+	lock.Unlock()
+
 	h.Lock()
 	v, ok := h.udpSocks[conn]
 	if ok {
-		v.Close()
 		delete(h.udpSocks, conn)
+		v.Close()
 	}
 	h.udpSocks[conn] = remoteCon
 	h.Unlock()
