@@ -2,7 +2,6 @@ package socks
 
 import (
 	"errors"
-	"fmt"
 	"log"
 	"net"
 	"strconv"
@@ -179,7 +178,7 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 			_, err := conn.WriteFrom(resp, addr)
 			if err != nil {
 				h.Close(conn)
-				log.Println(fmt.Sprintf("write dns answer failed: %v", err))
+				log.Printf("write dns answer failed: %v", err)
 				return errors.New("write remote failed")
 			}
 			return nil
