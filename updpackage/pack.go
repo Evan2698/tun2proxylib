@@ -21,24 +21,14 @@ func PackUDPData(target, src *net.UDPAddr, payload []byte) (full []byte, err err
 	}
 
 	var buffer bytes.Buffer
-	if len(target.IP) == net.IPv4len {
-		buffer.WriteByte(0x01)
-	} else if len(target.IP) == net.IPv6len {
-		buffer.WriteByte(0x04)
-	} else {
-		return nil, errors.New("invalid target IP address")
-	}
+	ipvLen := len(target.IP)
+	buffer.WriteByte(byte(ipvLen))
 	buffer.Write(target.IP)
 	buffer.WriteByte(byte(target.Port >> 8))
 	buffer.WriteByte(byte(target.Port & 0xff))
 
-	if len(src.IP) == net.IPv4len {
-		buffer.WriteByte(0x01)
-	} else if len(src.IP) == net.IPv6len {
-		buffer.WriteByte(0x04)
-	} else {
-		return nil, errors.New("invalid source IP address")
-	}
+	ipvLen = len(src.IP)
+	buffer.WriteByte(byte(ipvLen))
 	buffer.Write(src.IP)
 	buffer.WriteByte(byte(src.Port >> 8))
 	buffer.WriteByte(byte(src.Port & 0xff))
@@ -55,78 +45,30 @@ func PackUDPData(target, src *net.UDPAddr, payload []byte) (full []byte, err err
 }
 
 func UnpackUDPData(data []byte) (target, src *net.UDPAddr, payload []byte, err error) {
-	if len(data) < 1+4+2+1+4+2+4 {
+	if len(data) < 4 {
 		return nil, nil, nil, errors.New("data too short")
 	}
 
 	var idx = 0
-	var atyp = data[idx]
+	ipLen := int(data[idx])
 	idx++
-	var targetIP net.IP
-	if atyp == 0x01 {
-		if len(data) < idx+4+2+1+4+2+4 {
-			return nil, nil, nil, errors.New("data too short for IPv4")
-		}
-		targetIP = net.IPv4(data[idx], data[idx+1], data[idx+2], data[idx+3])
-		idx += 4
-	}
 
-	if atyp == 0x04 {
-		if len(data) < idx+16+2+1+4+2+4 {
-			return nil, nil, nil, errors.New("data too short for IPv6")
-		}
-		targetIP = net.IP(data[idx : idx+16])
-		idx += 16
-	}
-
-	if targetIP == nil {
-		return nil, nil, nil, errors.New("invalid target IP address")
-	}
-
-	if len(data) < idx+2+1+4+2+4 {
-		return nil, nil, nil, errors.New("data too short for target port")
-	}
+	var targetIP, srcIP net.IP
+	targetIP = net.IP(data[idx : idx+int(ipLen)])
+	idx += int(ipLen)
 	targetPort := int(data[idx])<<8 | int(data[idx+1])
 	idx += 2
 
-	atyp = data[idx]
+	ipLen = int(data[idx])
 	idx++
-	var srcIP net.IP
-	if atyp == 0x01 {
-		if len(data) < idx+4+2+4 {
-			return nil, nil, nil, errors.New("data too short for IPv4")
-		}
-		srcIP = net.IPv4(data[idx], data[idx+1], data[idx+2], data[idx+3])
-		idx += 4
-	}
-
-	if atyp == 0x04 {
-		if len(data) < idx+16+2+4 {
-			return nil, nil, nil, errors.New("data too short for IPv6")
-		}
-		srcIP = net.IP(data[idx : idx+16])
-		idx += 16
-	}
-
-	if srcIP == nil {
-		return nil, nil, nil, errors.New("invalid source IP address")
-	}
-
-	if len(data) < idx+2+4 {
-		return nil, nil, nil, errors.New("data too short for source port")
-	}
+	srcIP = net.IP(data[idx : idx+int(ipLen)])
+	idx += int(ipLen)
 	srcPort := int(data[idx])<<8 | int(data[idx+1])
 	idx += 2
 
-	if len(data) < idx+4 {
-		return nil, nil, nil, errors.New("data too short for payload length")
-	}
 	payloadLen := uint32(data[idx])<<24 | uint32(data[idx+1])<<16 | uint32(data[idx+2])<<8 | uint32(data[idx+3])
 	idx += 4
 
-	if len(data) < idx+int(payloadLen) {
-		return nil, nil, nil, errors.New("data too short for payload")
-	}
 	payload = data[idx : idx+int(payloadLen)]
 
 	target = &net.UDPAddr{
