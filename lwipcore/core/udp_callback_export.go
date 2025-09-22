@@ -7,6 +7,7 @@ package core
 import "C"
 import (
 	"log"
+	"time"
 	"unsafe"
 )
 
@@ -17,6 +18,8 @@ func udpRecvFn(arg unsafe.Pointer, pcb *C.struct_udp_pcb, p *C.struct_pbuf, addr
 			C.pbuf_free(p)
 		}
 	}()
+
+	UdpOnce.Do(destoryWithTimeout)
 
 	if pcb == nil {
 		return
@@ -49,7 +52,12 @@ func udpRecvFn(arg unsafe.Pointer, pcb *C.struct_udp_pcb, p *C.struct_pbuf, addr
 			return
 		}
 		udpConns.Store(connId, conn)
+
 	}
+
+	Udplock.Lock()
+	UdpConMap.Store(conn, timeout)
+	Udplock.Unlock()
 
 	var buf []byte
 	var totlen = int(p.tot_len)
@@ -62,4 +70,44 @@ func udpRecvFn(arg unsafe.Pointer, pcb *C.struct_udp_pcb, p *C.struct_pbuf, addr
 	}
 
 	conn.(UDPConn).ReceiveTo(buf[:totlen], dstAddr)
+}
+
+func destoryWithTimeout() {
+
+	go func() {
+
+		ticker := time.NewTicker(5 * time.Second)
+		for {
+			<-ticker.C
+			onAction()
+			if Exit {
+				break
+			}
+		}
+	}()
+
+}
+
+func onAction() {
+	Udplock.Lock()
+	defer Udplock.Unlock()
+
+	UdpConMap.Range(func(key, value interface{}) bool {
+		conn, ok := key.(UDPConn)
+		if !ok {
+			return true
+		}
+		t, ok := value.(int)
+		if !ok {
+			return true
+		}
+		if t <= 0 {
+			conn.Close()
+			UdpConMap.Delete(conn)
+			udpConns.Delete(udpConnId{src: conn.LocalAddr().String()})
+		} else {
+			UdpConMap.Store(conn, t-1)
+		}
+		return true
+	})
 }

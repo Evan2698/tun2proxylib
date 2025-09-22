@@ -10,6 +10,7 @@ import (
 	"tun2proxylib/lwipcore/common/dns"
 	"tun2proxylib/lwipcore/common/dns/cache"
 	"tun2proxylib/lwipcore/core"
+	"tun2proxylib/udppackage"
 )
 
 type udpHandler struct {
@@ -23,7 +24,7 @@ type udpHandler struct {
 	dnsCache *cache.DNSCache
 }
 
-const timeoutSecond = 30 * 60 // 30 minutes
+const timeoutSecond = 30 * 60 * 12 // 30 minutes
 
 var (
 	connectionTimeMap = make(map[net.Conn]int32)
@@ -47,7 +48,7 @@ func NewUDPHandler(proxyHost string, proxyPort uint16, timeout time.Duration, dn
 func initTimer() {
 
 	go func() {
-		ticker := time.NewTicker(60 * time.Second)
+		ticker := time.NewTicker(5 * time.Second)
 		for {
 			<-ticker.C
 			lock.Lock()
@@ -59,6 +60,10 @@ func initTimer() {
 				}
 			}
 			lock.Unlock()
+
+			if core.Exit {
+				break
+			}
 		}
 	}()
 }
@@ -104,72 +109,42 @@ func (h *udpHandler) fetchSocksData(conn core.UDPConn, remoteConn net.Conn, targ
 	buf := core.NewBytes(core.BufSize)
 	defer func() {
 		core.FreeBytes(buf)
-		h.Close(conn)
 	}()
 
-	_, err := remoteConn.Read(buf)
+	n, err := remoteConn.Read(buf)
 	if err != nil {
 		log.Println(err, "read from socks failed")
 		return
 	}
 
-	//raw := buf[:n]
+	raw := buf[:n]
+	_, _, payload, err := udppackage.UnpackUDPData(raw)
+	if err != nil {
+		log.Println(err, "unpack udp data failed!!")
+		return
+	}
 
-	// src, err := takeOffHeader(raw)
-	// if err != nil {
-	// 	log.Println(err, "take off header failed!!")
-	// 	return
-	// }
+	_, err = conn.WriteFrom(payload, target)
+	if err != nil {
+		log.Println(err, "write tun failed!!")
+		return
+	}
 
-	// n, err = conn.WriteFrom(src, target)
-	// if err != nil {
-	// 	log.Println(err, "write tun failed!!")
-	// 	return
-	// }
-	// if target.Port == dns.COMMON_DNS_PORT {
-	// 	h.dnsCache.Store(raw)
-	// }
-
+	if target.Port == dns.COMMON_DNS_PORT {
+		h.dnsCache.Store(raw)
+	}
 }
-
-// func takeOffHeader(src []byte) (raw []byte, err error) {
-// 	abc, err := udpserver.ParseData(src)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	return abc.Data, nil
-// }
-
-// func appendHeader(target, src *net.UDPAddr, raw []byte) (full []byte, err error) {
-
-// 	dest, _ := socketcore.ParseTargetAddress(net.JoinHostPort(target.IP.String(), strconv.Itoa(target.Port)))
-// 	srca, _ := socketcore.ParseTargetAddress(net.JoinHostPort(src.IP.String(), strconv.Itoa(src.Port)))
-// 	if srca == nil {
-// 		srca, _ = socketcore.ParseTargetAddress("127.0.0.1:1080")
-// 	}
-
-// 	answser := &udpserver.UDPCom{
-// 		Src:  srca,
-// 		Dst:  dest,
-// 		Cmd:  1,
-// 		Data: raw,
-// 	}
-
-// 	return udpserver.ToAnswer(answser), nil
-
-// }
 
 // ReceiveTo will be called when data arrives from TUN.
 func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr) error {
 	h.Lock()
-	//udpsocks, ok := h.udpSocks[conn]
+	udpsocks, ok := h.udpSocks[conn]
 	h.Unlock()
-
-	// if !ok {
-	// 	h.Close(conn)
-	// 	log.Println("can not find remote address <-->", conn.LocalAddr().String())
-	// 	return errors.New("can not find remote address")
-	// }
+	if !ok {
+		h.Close(conn)
+		log.Println("can not find remote address <-->", conn.LocalAddr().String())
+		return errors.New("can not find remote address")
+	}
 
 	if addr.Port == dns.COMMON_DNS_PORT {
 		if answer := h.dnsCache.Query(data); answer != nil {
@@ -185,20 +160,20 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 		}
 	}
 
-	// full, err := appendHeader(addr, conn.LocalAddr(), data)
-	// if err != nil {
-	// 	h.Close(conn)
-	// 	log.Println("pack udp date failed", err)
-	// 	return err
-	// }
+	full, err := udppackage.PackUDPData(addr, conn.LocalAddr(), data)
+	if err != nil {
+		h.Close(conn)
+		log.Println("pack udp data failed", err)
+		return errors.New("pack udp data failed")
+	}
 
-	// n, err := udpsocks.Write(full)
-	// if err != nil {
-	// 	h.Close(conn)
-	// 	log.Println("write to proxy failed", err)
-	// 	return errors.New("write to proxy failed")
-	// }
-	// log.Println("write bytes n", n)
+	n, err := udpsocks.Write(full)
+	if err != nil {
+		h.Close(conn)
+		log.Println("write to proxy failed", err)
+		return errors.New("write to proxy failed")
+	}
+	log.Println("write bytes n", n)
 	return nil
 }
 
