@@ -81,7 +81,7 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) error {
 	}
 
 	lock.Lock()
-	connectionTimeMap[remoteCon] = timeoutSecond
+	connectionTimeMap[remoteCon] = timeoutSecond // 不管是否已经有，都把时间重置
 	lock.Unlock()
 
 	h.Lock()
