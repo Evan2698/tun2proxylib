@@ -32,7 +32,7 @@ func (p *DefaultProxy) HandleTCP(conn gvisorcore.TCPConn) {
 	go func() {
 		defer conn.Close()
 		defer proxyConn.Close()
-		gvisorcore.Relay(conn, proxyConn)
+		//gvisorcore.Relay(conn, proxyConn)
 	}()
 
 }
