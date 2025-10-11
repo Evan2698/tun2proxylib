@@ -6,12 +6,15 @@ import (
 	"net"
 	"strconv"
 	"sync"
+	"time"
 	"tun2proxylib/gvisorcore"
 	"tun2proxylib/gvisorcore/buffer"
 	"tun2proxylib/udppackage"
 
 	"golang.org/x/net/proxy"
 )
+
+var timeout = 30 * time.Second
 
 type DefaultProxy struct {
 	TCPUrl string
@@ -59,7 +62,9 @@ func (p *DefaultProxy) HandleTCP(conn gvisorcore.TCPConn) {
 
 }
 
-func copySource2Destination(s, d io.ReadWriteCloser, w *sync.WaitGroup) {
+func copySource2Destination(s, d net.Conn, w *sync.WaitGroup) {
+	s.SetReadDeadline(time.Now().Add(timeout))
+	d.SetWriteDeadline(time.Now().Add(timeout))
 	io.Copy(s, d)
 	w.Done()
 }
@@ -121,6 +126,7 @@ func copyFromRemote2LocalDestination(rawConn *net.UDPConn, conn gvisorcore.UDPCo
 	defer buffer.Put(buf)
 
 	for {
+		rawConn.SetReadDeadline(time.Now().Add(timeout))
 		n, _, err := rawConn.ReadFrom(buf)
 		if err != nil {
 			break
@@ -129,6 +135,7 @@ func copyFromRemote2LocalDestination(rawConn *net.UDPConn, conn gvisorcore.UDPCo
 		if err != nil {
 			break
 		}
+		conn.SetWriteDeadline(time.Now().Add(timeout))
 		_, err = conn.WriteTo(payload, to)
 		if err != nil {
 			break
@@ -143,6 +150,7 @@ func sendUdpPacket2RemoteDestination(conn gvisorcore.UDPConn, destAddr net.UDPAd
 	defer buffer.Put(buf)
 
 	for {
+		conn.SetReadDeadline(time.Now().Add(timeout))
 		n, _, err := conn.ReadFrom(buf)
 		if err != nil {
 			break
@@ -151,7 +159,7 @@ func sendUdpPacket2RemoteDestination(conn gvisorcore.UDPConn, destAddr net.UDPAd
 		if err != nil {
 			continue
 		}
-
+		rawConn.SetWriteDeadline(time.Now().Add(timeout))
 		_, err = rawConn.Write(packedData)
 		if err != nil {
 			break
