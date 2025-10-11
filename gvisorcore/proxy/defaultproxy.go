@@ -64,6 +64,10 @@ func copySource2Destination(s, d io.ReadWriteCloser, w *sync.WaitGroup) {
 	w.Done()
 }
 
+// HandleUDP handles UDP packets by forwarding them to the specified UDP proxy server.
+// It reads packets from the gVisor UDP connection, encapsulates them, and sends them to the proxy server.
+// It also listens for responses from the proxy server and forwards them back to the original sender.
+
 func (p *DefaultProxy) HandleUDP(conn gvisorcore.UDPConn) {
 	id := conn.ID()
 	srcIP := id.RemoteAddress
