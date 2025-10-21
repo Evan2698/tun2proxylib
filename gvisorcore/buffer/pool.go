@@ -2,11 +2,13 @@ package buffer
 
 import "sync"
 
-const maxBufferSize = 4096
+const Page = 1024
+const TriplePage = 3 * Page
+const QuadruplePage = 4 * Page
 
 var pool = sync.Pool{
 	New: func() interface{} {
-		b := make([]byte, maxBufferSize)
+		b := make([]byte, QuadruplePage)
 		return &b
 	},
 }

@@ -53,6 +53,7 @@ func (p *DefaultProxy) HandleTCP(conn gvisorcore.TCPConn) {
 		defer conn.Close()
 		defer proxyConn.Close()
 		//gvisorcore.Relay(conn, proxyConn)
+		log.Println("relay of conn")
 		var wg sync.WaitGroup
 		wg.Add(2)
 		go copySource2Destination(conn, proxyConn, &wg)
@@ -127,9 +128,12 @@ func copyFromRemote2LocalDestination(rawConn *net.UDPConn, conn gvisorcore.UDPCo
 
 	for {
 		rawConn.SetReadDeadline(time.Now().Add(timeout))
-		n, _, err := rawConn.ReadFrom(buf)
+		n, _, err := rawConn.ReadFrom(buf[:buffer.TriplePage])
 		if err != nil {
 			break
+		}
+		if n == 0 {
+			continue
 		}
 		_, _, payload, err := udppackage.UnpackUDPData(buf[:n])
 		if err != nil {
@@ -151,7 +155,7 @@ func sendUdpPacket2RemoteDestination(conn gvisorcore.UDPConn, destAddr net.UDPAd
 
 	for {
 		conn.SetReadDeadline(time.Now().Add(timeout))
-		n, _, err := conn.ReadFrom(buf)
+		n, _, err := conn.ReadFrom(buf[:buffer.TriplePage])
 		if err != nil {
 			break
 		}
