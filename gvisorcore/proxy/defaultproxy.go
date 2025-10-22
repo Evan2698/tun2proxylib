@@ -9,6 +9,8 @@ import (
 	"time"
 	"tun2proxylib/gvisorcore"
 	"tun2proxylib/gvisorcore/buffer"
+	"tun2proxylib/mobile"
+	"tun2proxylib/socketbase"
 	"tun2proxylib/udppackage"
 
 	"golang.org/x/net/proxy"
@@ -19,12 +21,14 @@ var timeout = 30 * time.Second
 type DefaultProxy struct {
 	TCPUrl string
 	UDPUrl string
+	Func   mobile.ProtectSocket
 }
 
-func NewDefaultProxy(tcpUrl, udpUrl string) *DefaultProxy {
+func NewDefaultProxy(tcpUrl, udpUrl string, p mobile.ProtectSocket) *DefaultProxy {
 	return &DefaultProxy{
 		TCPUrl: tcpUrl,
 		UDPUrl: udpUrl,
+		Func:   p,
 	}
 }
 
@@ -96,13 +100,7 @@ func (p *DefaultProxy) HandleUDP(conn gvisorcore.UDPConn) {
 		return
 	}
 
-	addr, err := net.ResolveUDPAddr("udp", p.UDPUrl)
-	if err != nil {
-		conn.Close()
-		return
-	}
-
-	rawConn, err := net.DialUDP("udp", nil, addr)
+	rawConn, err := socketbase.UdpDailNetString(p.UDPUrl, p.Func)
 	if err != nil {
 		conn.Close()
 		return
@@ -122,13 +120,13 @@ func (p *DefaultProxy) HandleUDP(conn gvisorcore.UDPConn) {
 
 }
 
-func copyFromRemote2LocalDestination(rawConn *net.UDPConn, conn gvisorcore.UDPConn, wg *sync.WaitGroup, to net.Addr) {
+func copyFromRemote2LocalDestination(rawConn net.Conn, conn gvisorcore.UDPConn, wg *sync.WaitGroup, to net.Addr) {
 	buf := buffer.Get()
 	defer buffer.Put(buf)
 
 	for {
 		rawConn.SetReadDeadline(time.Now().Add(timeout))
-		n, _, err := rawConn.ReadFrom(buf[:buffer.TriplePage])
+		n, err := rawConn.Read(buf[:buffer.TriplePage])
 		if err != nil {
 			break
 		}
@@ -149,7 +147,7 @@ func copyFromRemote2LocalDestination(rawConn *net.UDPConn, conn gvisorcore.UDPCo
 	wg.Done()
 }
 
-func sendUdpPacket2RemoteDestination(conn gvisorcore.UDPConn, destAddr net.UDPAddr, srcAddr net.UDPAddr, rawConn *net.UDPConn, wg *sync.WaitGroup) {
+func sendUdpPacket2RemoteDestination(conn gvisorcore.UDPConn, destAddr net.UDPAddr, srcAddr net.UDPAddr, rawConn net.Conn, wg *sync.WaitGroup) {
 	buf := buffer.Get()
 	defer buffer.Put(buf)
 
