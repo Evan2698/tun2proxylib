@@ -33,7 +33,7 @@ func TcpDail(IP net.IP, port int, p mobile.ProtectSocket) (net.Conn, error) {
 	defer syscall.Close(fd)
 
 	//3. protect socket
-	ret := p.Protect(fd)
+	ret := p.Protect(int(fd))
 	if ret != 0 {
 		log.Println("protect tcp socket failed!!!", ret)
 		return nil, syscall.EINVAL
@@ -78,7 +78,7 @@ func UdpDail(IP net.IP, port int, p mobile.ProtectSocket) (net.Conn, error) {
 	defer syscall.Close(fd)
 
 	//3. protect socket
-	ret := p.Protect(fd)
+	ret := p.Protect(int(fd))
 	if ret != 0 {
 		log.Println("protect tcp socket failed!!!", ret)
 		return nil, syscall.EINVAL
