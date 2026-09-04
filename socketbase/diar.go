@@ -22,9 +22,10 @@ func TcpDail(IP net.IP, port int, p mobile.ProtectSocket) (net.Conn, error) {
 		log.Println("prepare sockaddr failed!!!", err)
 		return nil, err
 	}
+	family := socketFamily(IP)
 
 	//2. create socket
-	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_STREAM, syscall.IPPROTO_TCP)
+	fd, err := syscall.Socket(family, syscall.SOCK_STREAM, syscall.IPPROTO_TCP)
 	if err != nil {
 		log.Println("create tcp socket failed!!!", err)
 		return nil, err
@@ -40,7 +41,11 @@ func TcpDail(IP net.IP, port int, p mobile.ProtectSocket) (net.Conn, error) {
 	}
 
 	//4. set attribute
-	err = syscall.SetsockoptInt(fd, syscall.IPPROTO_IP, syscall.IP_TOS, 128)
+	if family == syscall.AF_INET6 {
+		err = syscall.SetsockoptInt(fd, syscall.IPPROTO_IPV6, syscall.IPV6_TCLASS, 128)
+	} else {
+		err = syscall.SetsockoptInt(fd, syscall.IPPROTO_IP, syscall.IP_TOS, 128)
+	}
 	if err != nil {
 		log.Println("set socket attributes ", err)
 		return nil, err
@@ -69,8 +74,9 @@ func UdpDail(IP net.IP, port int, p mobile.ProtectSocket) (net.Conn, error) {
 		log.Println("prepare sockaddr failed!!!", err)
 		return nil, err
 	}
+	family := socketFamily(IP)
 
-	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_DGRAM, syscall.IPPROTO_UDP)
+	fd, err := syscall.Socket(family, syscall.SOCK_DGRAM, syscall.IPPROTO_UDP)
 	if err != nil {
 		log.Println("create udp socket failed!!!", err)
 		return nil, err
@@ -146,6 +152,13 @@ func netAddrToSockaddr(ip net.IP, port int) (syscall.Sockaddr, error) {
 	} else {
 		return nil, fmt.Errorf("convert net address error")
 	}
+}
+
+func socketFamily(ip net.IP) int {
+	if ip.To4() != nil {
+		return syscall.AF_INET
+	}
+	return syscall.AF_INET6
 }
 
 func fdToConn(fd uintptr) (net.Conn, error) {
