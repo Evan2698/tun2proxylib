@@ -32,8 +32,9 @@ type lwipStack struct {
 	tpcb *C.struct_tcp_pcb
 	upcb *C.struct_udp_pcb
 
-	ctx    context.Context
-	cancel context.CancelFunc
+	ctx       context.Context
+	cancel    context.CancelFunc
+	closeOnce sync.Once
 }
 
 // NewLWIPStack listens for any incoming connections/packets and registers
@@ -55,6 +56,7 @@ func NewLWIPStack() LWIPStack {
 
 	case C.ERR_USE:
 		log.Print("port in use")
+		C.memp_free(C.MEMP_TCP_PCB, unsafe.Pointer(tcpPCB))
 		return nil
 	default:
 		C.memp_free(C.MEMP_TCP_PCB, unsafe.Pointer(tcpPCB))
@@ -73,12 +75,21 @@ func NewLWIPStack() LWIPStack {
 	udpPCB := C.udp_new()
 	if udpPCB == nil {
 		log.Print("could not allocate udp pcb")
+		lwipMutex.Lock()
+		C.tcp_accept(tcpPCB, nil)
+		C.tcp_close(tcpPCB)
+		lwipMutex.Unlock()
 		return nil
 	}
 
 	err = C.udp_bind(udpPCB, C.IP_ADDR_ANY, 0)
 	if err != C.ERR_OK {
 		log.Print("address already in use")
+		C.udp_remove(udpPCB)
+		lwipMutex.Lock()
+		C.tcp_accept(tcpPCB, nil)
+		C.tcp_close(tcpPCB)
+		lwipMutex.Unlock()
 		return nil
 	}
 
@@ -87,9 +98,11 @@ func NewLWIPStack() LWIPStack {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	go func() {
+		ticker := time.NewTicker(CHECK_TIMEOUTS_INTERVAL * time.Millisecond)
+		defer ticker.Stop()
 		for {
 			select {
-			case <-time.After(CHECK_TIMEOUTS_INTERVAL * time.Millisecond):
+			case <-ticker.C:
 				lwipMutex.Lock()
 				C.sys_check_timeouts()
 				lwipMutex.Unlock()
@@ -134,33 +147,27 @@ func (s *lwipStack) RestartTimeouts() {
 // Note this function will not free objects allocated in lwIP initialization
 // stage, e.g. the loop interface.
 func (s *lwipStack) Close() error {
+	s.closeOnce.Do(func() {
+		log.Print("Close lwipStack..............")
+		s.cancel()
 
-	log.Print("Close lwipStack..............")
-	// Stop firing timer events.
-	s.cancel()
+		tcpConns.Range(func(_, c interface{}) bool {
+			c.(*tcpConn).Abort()
+			return true
+		})
+		udpConns.Range(func(_, c interface{}) bool {
+			c.(*udpConn).Close()
+			return true
+		})
 
-	// Abort and close all TCP and UDP connections.
-	tcpConns.Range(func(_, c interface{}) bool {
-		c.(*tcpConn).Abort()
-		return true
+		lwipMutex.Lock()
+		C.tcp_accept(s.tpcb, nil)
+		C.udp_recv(s.upcb, nil, nil)
+		C.tcp_close(s.tpcb)
+		C.udp_remove(s.upcb)
+		lwipMutex.Unlock()
+		log.Print("lwipStack Closed!..............")
 	})
-	udpConns.Range(func(_, c interface{}) bool {
-		// This only closes UDP connections in the core,
-		// UDP connections in the handler will wait till
-		// timeout, they are not closed immediately for
-		// now.
-		c.(*udpConn).Close()
-		return true
-	})
-
-	// Remove callbacks and close listening pcbs.
-	lwipMutex.Lock()
-	C.tcp_accept(s.tpcb, nil)
-	C.udp_recv(s.upcb, nil, nil)
-	C.tcp_close(s.tpcb) // FIXME handle error
-	C.udp_remove(s.upcb)
-	lwipMutex.Unlock()
-	log.Print("lwipStack Closed!..............")
 	return nil
 }
 
