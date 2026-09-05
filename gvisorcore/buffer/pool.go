@@ -2,21 +2,26 @@ package buffer
 
 import "sync"
 
-const Page = 1024
-const TriplePage = 3 * Page
-const QuadruplePage = 4 * Page
+const (
+	Page          = 1024
+	TriplePage    = 3 * Page
+	QuadruplePage = 4 * Page
+)
 
 var pool = sync.Pool{
-	New: func() interface{} {
-		b := make([]byte, QuadruplePage)
-		return &b
+	New: func() any {
+		return make([]byte, QuadruplePage)
 	},
 }
 
 func Get() []byte {
-	return *(pool.Get().(*[]byte))
+	return pool.Get().([]byte)
 }
 
 func Put(b []byte) {
-	pool.Put(&b)
+	if cap(b) != QuadruplePage {
+		return
+	}
+
+	pool.Put(b[:QuadruplePage])
 }

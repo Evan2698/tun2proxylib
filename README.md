@@ -5,7 +5,4 @@
 * 第一种方式： 使用lwip用golang 的cgo 包装一下，这部分代码是https://github.com/eycorsican/go-tun2socks 出自这部分代码，因为这部分代码源码作者已经将其归档了。这部分代码可以用，我在现实项目中使用测试过。
 * 第二种方式： gvisor中的netstack 部分，好用，香。
 
-而且使用第二种方式项目真香。
-
-在打TAG
 

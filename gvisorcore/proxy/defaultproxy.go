@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
 	"tun2proxylib/gvisorcore"
 	"tun2proxylib/gvisorcore/buffer"
 	"tun2proxylib/mobile"
@@ -68,10 +69,11 @@ func (p *DefaultProxy) HandleTCP(conn gvisorcore.TCPConn) {
 }
 
 func copySource2Destination(s, d net.Conn, w *sync.WaitGroup) {
+	defer w.Done()
+
 	s.SetReadDeadline(time.Now().Add(timeout))
 	d.SetWriteDeadline(time.Now().Add(timeout))
 	io.Copy(s, d)
-	w.Done()
 }
 
 // HandleUDP handles UDP packets by forwarding them to the specified UDP proxy server.
@@ -89,16 +91,18 @@ func (p *DefaultProxy) HandleUDP(conn gvisorcore.UDPConn) {
 
 	dest := net.JoinHostPort(dstIP.String(), strconv.Itoa(int(dstPort)))
 	src := net.JoinHostPort(srcIP.String(), strconv.Itoa(int(srcPort)))
-	destAddr, err := parseAddress(dest)
+	destAddr, err := net.ResolveUDPAddr("udp", dest)
 	if err != nil {
 		conn.Close()
 		return
 	}
-	srcAddr, err := parseAddress(src)
+	destUDPAddr := *destAddr
+	srcAddr, err := net.ResolveUDPAddr("udp", src)
 	if err != nil {
 		conn.Close()
 		return
 	}
+	srcUDPAddr := *srcAddr
 
 	rawConn, err := socketbase.UdpDailNetString(p.UDPUrl, p.Func)
 	if err != nil {
@@ -112,8 +116,8 @@ func (p *DefaultProxy) HandleUDP(conn gvisorcore.UDPConn) {
 		var wg sync.WaitGroup
 		wg.Add(2)
 
-		go sendUdpPacket2RemoteDestination(conn, destAddr, srcAddr, rawConn, &wg)
-		go copyFromRemote2LocalDestination(rawConn, conn, &wg, &srcAddr)
+		go sendUdpPacket2RemoteDestination(conn, destUDPAddr, srcUDPAddr, rawConn, &wg)
+		go copyFromRemote2LocalDestination(rawConn, conn, &wg, &srcUDPAddr)
 
 		wg.Wait()
 	}()
@@ -121,6 +125,8 @@ func (p *DefaultProxy) HandleUDP(conn gvisorcore.UDPConn) {
 }
 
 func copyFromRemote2LocalDestination(rawConn net.Conn, conn gvisorcore.UDPConn, wg *sync.WaitGroup, to net.Addr) {
+	defer wg.Done()
+
 	buf := buffer.Get()
 	defer buffer.Put(buf)
 
@@ -143,11 +149,11 @@ func copyFromRemote2LocalDestination(rawConn net.Conn, conn gvisorcore.UDPConn, 
 			break
 		}
 	}
-
-	wg.Done()
 }
 
 func sendUdpPacket2RemoteDestination(conn gvisorcore.UDPConn, destAddr net.UDPAddr, srcAddr net.UDPAddr, rawConn net.Conn, wg *sync.WaitGroup) {
+	defer wg.Done()
+
 	buf := buffer.Get()
 	defer buffer.Put(buf)
 
@@ -167,14 +173,4 @@ func sendUdpPacket2RemoteDestination(conn gvisorcore.UDPConn, destAddr net.UDPAd
 			break
 		}
 	}
-
-	wg.Done()
-}
-
-func parseAddress(address string) (net.UDPAddr, error) {
-	udpAddr, err := net.ResolveUDPAddr("udp", address)
-	if err != nil {
-		return net.UDPAddr{}, err
-	}
-	return *udpAddr, nil
 }
