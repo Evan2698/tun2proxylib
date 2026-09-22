@@ -10,56 +10,13 @@ import (
 	"tun2proxylib/mobile"
 )
 
-func TcpDail(IP net.IP, port int, p mobile.ProtectSocket) (net.Conn, error) {
+func TcpDial(ip net.IP, port int, p mobile.ProtectSocket) (net.Conn, error) {
 	if p == nil {
-		conn, err := net.Dial("tcp", net.JoinHostPort(IP.String(), strconv.Itoa(port)))
-		return conn, err
+		return net.Dial("tcp", net.JoinHostPort(ip.String(), strconv.Itoa(port)))
 	}
 
-	//1. prepare address
-	sa, err := netAddrToSockaddr(IP, port)
-	if err != nil {
-		log.Println("prepare sockaddr failed!!!", err)
-		return nil, err
-	}
-	family := socketFamily(IP)
-
-	//2. create socket
-	fd, err := syscall.Socket(family, syscall.SOCK_STREAM, syscall.IPPROTO_TCP)
-	if err != nil {
-		log.Println("create tcp socket failed!!!", err)
-		return nil, err
-	}
-	// release fd, because net.FileConn will dup it
-	defer syscall.Close(fd)
-
-	//3. protect socket
-	ret := p.Protect(int(fd))
-	if ret != 0 {
-		log.Println("protect tcp socket failed!!!", ret)
-		return nil, syscall.EINVAL
-	}
-
-	//4. set attribute
-	if family == syscall.AF_INET6 {
-		err = syscall.SetsockoptInt(fd, syscall.IPPROTO_IPV6, syscall.IPV6_TCLASS, 128)
-	} else {
-		err = syscall.SetsockoptInt(fd, syscall.IPPROTO_IP, syscall.IP_TOS, 128)
-	}
-	if err != nil {
-		log.Println("set socket attributes ", err)
-		return nil, err
-	}
-
-	//5. connect
-	err = syscall.Connect(fd, sa)
-	if err != nil {
-		log.Println("tcp connect failed!!!", err)
-		return nil, err
-	}
-
-	//6. convert fd to net.Conn
-	return fdToConn(uintptr(fd))
+	// 调用分平台实现
+	return dialProtectedTCP(ip, port, p)
 }
 
 func UdpDail(IP net.IP, port int, p mobile.ProtectSocket) (net.Conn, error) {
