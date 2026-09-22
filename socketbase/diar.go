@@ -71,7 +71,7 @@ func TcpDailNetString(netString string, p mobile.ProtectSocket) (net.Conn, error
 	if ip == nil {
 		return nil, fmt.Errorf("parse ip failed")
 	}
-	return TcpDail(ip, port, p)
+	return TcpDial(ip, port, p)
 }
 func UdpDailNetString(netString string, p mobile.ProtectSocket) (net.Conn, error) {
 	host, portStr, err := net.SplitHostPort(netString)
