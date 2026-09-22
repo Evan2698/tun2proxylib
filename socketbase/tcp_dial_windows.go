@@ -1,4 +1,4 @@
-package scocketbase
+package socketbase
 
 import (
 	"net"
